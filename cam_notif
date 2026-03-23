@@ -1,0 +1,49 @@
+blueprint:
+  name: Presence → Notification avec snapshot (URL caméra)
+  description: Envoie une notification avec image snapshot via URL (go2rtc compatible)
+  domain: automation
+  input:
+    motion_sensor:
+      name: Capteur de présence
+      selector:
+        entity:
+          domain: binary_sensor
+
+    notify_device:
+      name: Appareil à notifier
+      selector:
+        device:
+          integration: mobile_app
+
+    snapshot_url:
+      name: URL snapshot caméra
+      selector:
+        text:
+
+    title:
+      name: Titre notification
+      default: "Mouvement détecté"
+      selector:
+        text:
+
+    message:
+      name: Message
+      default: "Quelqu’un est détecté"
+      selector:
+        text:
+
+trigger:
+  - platform: state
+    entity_id: !input motion_sensor
+    to: "on"
+
+action:
+  - device_id: !input notify_device
+    domain: mobile_app
+    type: notify
+    title: !input title
+    message: !input message
+    data:
+      image: !input snapshot_url
+
+mode: single
