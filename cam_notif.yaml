@@ -1,8 +1,9 @@
 blueprint:
-  name: Presence → Notification avec snapshot temporaire
+  name: Presence → Notification avec image caméra
   description: >-
-    Prend un snapshot d'une entité caméra, attend brièvement la création du fichier,
-    envoie la notification mobile avec l'image locale, puis supprime le fichier.
+    Envoie une notification mobile avec image. Deux modes:
+    1) URL snapshot directe (si fournie),
+    2) Snapshot temporaire local depuis une entité caméra (fallback), puis suppression.
   domain: automation
   source_url: https://github.com/Kromagnsss/HABP/blob/main/cam_notif.yaml
   input:
@@ -12,17 +13,30 @@ blueprint:
         entity:
           domain: binary_sensor
 
-    camera_entity:
-      name: Caméra
-      selector:
-        entity:
-          domain: camera
-
     notify_device:
       name: Appareil à notifier
       selector:
         device:
           integration: mobile_app
+
+    snapshot_url:
+      name: URL snapshot caméra (prioritaire, optionnel)
+      description: >-
+        Si renseignée, cette URL est utilisée directement dans la notification.
+        Exemple: https://.../frame.jpeg
+      default: ""
+      selector:
+        text:
+
+    camera_entity:
+      name: Caméra (fallback)
+      description: >-
+        Utilisée seulement si l'URL snapshot est vide. Le blueprint crée un fichier
+        temporaire local, l'envoie dans la notif, puis le supprime.
+      default: ""
+      selector:
+        entity:
+          domain: camera
 
     title:
       name: Titre notification
@@ -37,8 +51,7 @@ blueprint:
         text:
 
     wait_seconds:
-      name: Attente avant envoi (secondes)
-      description: Laisse le temps au snapshot d'être écrit sur disque.
+      name: Attente avant envoi (mode caméra)
       default: 2
       selector:
         number:
@@ -48,8 +61,7 @@ blueprint:
           mode: slider
 
     keep_seconds:
-      name: Durée de conservation après envoi (secondes)
-      description: Délai avant suppression du fichier temporaire.
+      name: Durée de conservation après envoi (mode caméra)
       default: 15
       selector:
         number:
@@ -59,9 +71,12 @@ blueprint:
           mode: slider
 
 variables:
+  snapshot_url_input: !input snapshot_url
+  camera_entity_input: !input camera_entity
+  has_snapshot_url: "{{ snapshot_url_input | trim != '' }}"
   snapshot_name: "cam_notif_{{ context.id }}.jpg"
   snapshot_path: "/config/www/{{ snapshot_name }}"
-  snapshot_url: "/local/{{ snapshot_name }}?v={{ now().timestamp() | int }}"
+  local_snapshot_url: "/local/{{ snapshot_name }}?v={{ now().timestamp() | int }}"
 
 trigger:
   - platform: state
@@ -69,31 +84,46 @@ trigger:
     to: "on"
 
 action:
-  - service: camera.snapshot
-    target:
-      entity_id: !input camera_entity
-    data:
-      filename: "{{ snapshot_path }}"
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ has_snapshot_url }}"
+        sequence:
+          - device_id: !input notify_device
+            domain: mobile_app
+            type: notify
+            title: !input title
+            message: !input message
+            data:
+              image: "{{ snapshot_url_input | trim }}"
+              attachment:
+                url: "{{ snapshot_url_input | trim }}"
+    default:
+      - service: camera.snapshot
+        target:
+          entity_id: !input camera_entity
+        data:
+          filename: "{{ snapshot_path }}"
 
-  - delay:
-      seconds: !input wait_seconds
+      - delay:
+          seconds: !input wait_seconds
 
-  - device_id: !input notify_device
-    domain: mobile_app
-    type: notify
-    title: !input title
-    message: !input message
-    data:
-      image: "{{ snapshot_url }}"
-      attachment:
-        url: "{{ snapshot_url }}"
+      - device_id: !input notify_device
+        domain: mobile_app
+        type: notify
+        title: !input title
+        message: !input message
+        data:
+          image: "{{ local_snapshot_url }}"
+          attachment:
+            url: "{{ local_snapshot_url }}"
 
-  - delay:
-      seconds: !input keep_seconds
+      - delay:
+          seconds: !input keep_seconds
 
-  - service: file.delete
-    continue_on_error: true
-    data:
-      path: "{{ snapshot_path }}"
+      - service: file.delete
+        continue_on_error: true
+        data:
+          path: "{{ snapshot_path }}"
 
 mode: single
