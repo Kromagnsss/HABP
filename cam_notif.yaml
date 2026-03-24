@@ -50,6 +50,17 @@ blueprint:
       selector:
         text:
 
+    pre_delay_seconds:
+      name: Délai avant traitement (URL/caméra)
+      description: Attente avant le choose pour laisser le temps à l'acquisition d'image.
+      default: 2
+      selector:
+        number:
+          min: 0
+          max: 15
+          unit_of_measurement: s
+          mode: slider
+
     wait_seconds:
       name: Attente avant envoi (mode caméra)
       default: 2
@@ -83,6 +94,9 @@ trigger:
     to: "on"
 
 action:
+  - delay:
+      seconds: !input pre_delay_seconds
+
   - choose:
       - conditions:
           - condition: template
@@ -103,9 +117,8 @@ action:
             value_template: "{{ camera_entity_input | trim != '' }}"
         sequence:
           - service: camera.snapshot
-            target:
-              entity_id: "{{ camera_entity_input }}"
             data:
+              entity_id: "{{ camera_entity_input }}"
               filename: "{{ snapshot_path }}"
 
           - delay:
