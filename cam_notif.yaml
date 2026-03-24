@@ -73,8 +73,6 @@ blueprint:
 variables:
   snapshot_url_input: !input snapshot_url
   camera_entity_input: !input camera_entity
-  has_snapshot_url: "{{ snapshot_url_input | trim != '' }}"
-  has_camera_entity: "{{ camera_entity_input | trim != '' }}"
   snapshot_name: "cam_notif_{{ context.id }}.jpg"
   snapshot_path: "/config/www/{{ snapshot_name }}"
   local_snapshot_url: "/local/{{ snapshot_name }}?v={{ now().timestamp() | int }}"
@@ -88,7 +86,7 @@ action:
   - choose:
       - conditions:
           - condition: template
-            value_template: "{{ has_snapshot_url }}"
+            value_template: "{{ snapshot_url_input | trim != '' }}"
         sequence:
           - device_id: !input notify_device
             domain: mobile_app
@@ -102,11 +100,11 @@ action:
 
       - conditions:
           - condition: template
-            value_template: "{{ has_camera_entity }}"
+            value_template: "{{ camera_entity_input | trim != '' }}"
         sequence:
           - service: camera.snapshot
             target:
-              entity_id: !input camera_entity
+              entity_id: "{{ camera_entity_input }}"
             data:
               filename: "{{ snapshot_path }}"
 
