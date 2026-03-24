@@ -74,6 +74,7 @@ variables:
   snapshot_url_input: !input snapshot_url
   camera_entity_input: !input camera_entity
   has_snapshot_url: "{{ snapshot_url_input | trim != '' }}"
+  has_camera_entity: "{{ camera_entity_input | trim != '' }}"
   snapshot_name: "cam_notif_{{ context.id }}.jpg"
   snapshot_path: "/config/www/{{ snapshot_name }}"
   local_snapshot_url: "/local/{{ snapshot_name }}?v={{ now().timestamp() | int }}"
@@ -98,32 +99,40 @@ action:
               image: "{{ snapshot_url_input | trim }}"
               attachment:
                 url: "{{ snapshot_url_input | trim }}"
+
+      - conditions:
+          - condition: template
+            value_template: "{{ has_camera_entity }}"
+        sequence:
+          - service: camera.snapshot
+            target:
+              entity_id: !input camera_entity
+            data:
+              filename: "{{ snapshot_path }}"
+
+          - delay:
+              seconds: !input wait_seconds
+
+          - device_id: !input notify_device
+            domain: mobile_app
+            type: notify
+            title: !input title
+            message: !input message
+            data:
+              image: "{{ local_snapshot_url }}"
+              attachment:
+                url: "{{ local_snapshot_url }}"
+
+          - delay:
+              seconds: !input keep_seconds
+
+          - service: file.delete
+            continue_on_error: true
+            data:
+              path: "{{ snapshot_path }}"
+
     default:
-      - service: camera.snapshot
-        target:
-          entity_id: !input camera_entity
-        data:
-          filename: "{{ snapshot_path }}"
-
-      - delay:
-          seconds: !input wait_seconds
-
-      - device_id: !input notify_device
-        domain: mobile_app
-        type: notify
-        title: !input title
-        message: !input message
-        data:
-          image: "{{ local_snapshot_url }}"
-          attachment:
-            url: "{{ local_snapshot_url }}"
-
-      - delay:
-          seconds: !input keep_seconds
-
-      - service: file.delete
-        continue_on_error: true
-        data:
-          path: "{{ snapshot_path }}"
+      - stop: >-
+          Configuration invalide: renseigne soit snapshot_url, soit camera_entity.
 
 mode: single
