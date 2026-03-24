@@ -1,9 +1,8 @@
 blueprint:
-  name: Presence → Notification avec snapshot (URL caméra)
+  name: Presence → Notification avec snapshot temporaire
   description: >-
-    Envoie une notification mobile avec image. Évite les URLs /api/hassio_ingress
-    (souvent inaccessibles pour les notifications). Utilise soit une URL publique,
-    soit une entité caméra Home Assistant pour générer une URL /api/camera_proxy.
+    Prend un snapshot d'une entité caméra, attend brièvement la création du fichier,
+    envoie la notification mobile avec l'image locale, puis supprime le fichier.
   domain: automation
   source_url: https://github.com/Kromagnsss/HABP/blob/main/cam_notif.yaml
   input:
@@ -13,28 +12,17 @@ blueprint:
         entity:
           domain: binary_sensor
 
+    camera_entity:
+      name: Caméra
+      selector:
+        entity:
+          domain: camera
+
     notify_device:
       name: Appareil à notifier
       selector:
         device:
           integration: mobile_app
-
-    snapshot_url:
-      name: URL snapshot caméra (optionnel)
-      description: URL HTTP(S) directe vers une image (éviter /api/hassio_ingress)
-      default: ""
-      selector:
-        text:
-
-    camera_entity:
-      name: Entité caméra Home Assistant (optionnel)
-      description: >-
-        Si renseignée et que l'URL snapshot est vide, le blueprint utilisera
-        /api/camera_proxy/<camera>?token=<access_token>.
-      default: ""
-      selector:
-        entity:
-          domain: camera
 
     title:
       name: Titre notification
@@ -48,17 +36,32 @@ blueprint:
       selector:
         text:
 
+    wait_seconds:
+      name: Attente avant envoi (secondes)
+      description: Laisse le temps au snapshot d'être écrit sur disque.
+      default: 2
+      selector:
+        number:
+          min: 1
+          max: 10
+          unit_of_measurement: s
+          mode: slider
+
+    keep_seconds:
+      name: Durée de conservation après envoi (secondes)
+      description: Délai avant suppression du fichier temporaire.
+      default: 15
+      selector:
+        number:
+          min: 5
+          max: 120
+          unit_of_measurement: s
+          mode: slider
+
 variables:
-  snapshot_url_input: !input snapshot_url
-  camera_entity_input: !input camera_entity
-  resolved_image_url: >-
-    {% if snapshot_url_input | trim != '' %}
-      {{ snapshot_url_input | trim }}
-    {% elif camera_entity_input | trim != '' %}
-      /api/camera_proxy/{{ camera_entity_input }}?token={{ state_attr(camera_entity_input, 'access_token') }}
-    {% else %}
-      {{ '' }}
-    {% endif %}
+  snapshot_name: "cam_notif_{{ context.id }}.jpg"
+  snapshot_path: "/config/www/{{ snapshot_name }}"
+  snapshot_url: "/local/{{ snapshot_name }}?v={{ now().timestamp() | int }}"
 
 trigger:
   - platform: state
@@ -66,14 +69,31 @@ trigger:
     to: "on"
 
 action:
+  - service: camera.snapshot
+    target:
+      entity_id: !input camera_entity
+    data:
+      filename: "{{ snapshot_path }}"
+
+  - delay:
+      seconds: !input wait_seconds
+
   - device_id: !input notify_device
     domain: mobile_app
     type: notify
     title: !input title
     message: !input message
     data:
-      image: "{{ resolved_image_url }}"
+      image: "{{ snapshot_url }}"
       attachment:
-        url: "{{ resolved_image_url }}"
+        url: "{{ snapshot_url }}"
+
+  - delay:
+      seconds: !input keep_seconds
+
+  - service: file.delete
+    continue_on_error: true
+    data:
+      path: "{{ snapshot_path }}"
 
 mode: single
