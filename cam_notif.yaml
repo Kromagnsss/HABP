@@ -1,0 +1,129 @@
+blueprint:
+  name: Presence → Notification avec image caméra
+  description: >-
+    Envoie une notification mobile avec image. Deux modes:
+    1) URL snapshot directe (si fournie),
+    2) Snapshot temporaire local depuis une entité caméra (fallback), puis suppression.
+  domain: automation
+  source_url: https://github.com/Kromagnsss/HABP/blob/main/cam_notif.yaml
+  input:
+    motion_sensor:
+      name: Capteur de présence
+      selector:
+        entity:
+          domain: binary_sensor
+
+    notify_device:
+      name: Appareil à notifier
+      selector:
+        device:
+          integration: mobile_app
+
+    snapshot_url:
+      name: URL snapshot caméra (prioritaire, optionnel)
+      description: >-
+        Si renseignée, cette URL est utilisée directement dans la notification.
+        Exemple: https://.../frame.jpeg
+      default: ""
+      selector:
+        text:
+
+    camera_entity:
+      name: Caméra (fallback)
+      description: >-
+        Utilisée seulement si l'URL snapshot est vide. Le blueprint crée un fichier
+        temporaire local, l'envoie dans la notif, puis le supprime.
+      default: ""
+      selector:
+        entity:
+          domain: camera
+
+    title:
+      name: Titre notification
+      default: "Mouvement détecté"
+      selector:
+        text:
+
+    message:
+      name: Message
+      default: "Quelqu’un est détecté"
+      selector:
+        text:
+
+    wait_seconds:
+      name: Attente avant envoi (mode caméra)
+      default: 2
+      selector:
+        number:
+          min: 1
+          max: 10
+          unit_of_measurement: s
+          mode: slider
+
+    keep_seconds:
+      name: Durée de conservation après envoi (mode caméra)
+      default: 15
+      selector:
+        number:
+          min: 5
+          max: 120
+          unit_of_measurement: s
+          mode: slider
+
+variables:
+  snapshot_url_input: !input snapshot_url
+  camera_entity_input: !input camera_entity
+  has_snapshot_url: "{{ snapshot_url_input | trim != '' }}"
+  snapshot_name: "cam_notif_{{ context.id }}.jpg"
+  snapshot_path: "/config/www/{{ snapshot_name }}"
+  local_snapshot_url: "/local/{{ snapshot_name }}?v={{ now().timestamp() | int }}"
+
+trigger:
+  - platform: state
+    entity_id: !input motion_sensor
+    to: "on"
+
+action:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ has_snapshot_url }}"
+        sequence:
+          - device_id: !input notify_device
+            domain: mobile_app
+            type: notify
+            title: !input title
+            message: !input message
+            data:
+              image: "{{ snapshot_url_input | trim }}"
+              attachment:
+                url: "{{ snapshot_url_input | trim }}"
+    default:
+      - service: camera.snapshot
+        target:
+          entity_id: !input camera_entity
+        data:
+          filename: "{{ snapshot_path }}"
+
+      - delay:
+          seconds: !input wait_seconds
+
+      - device_id: !input notify_device
+        domain: mobile_app
+        type: notify
+        title: !input title
+        message: !input message
+        data:
+          image: "{{ local_snapshot_url }}"
+          attachment:
+            url: "{{ local_snapshot_url }}"
+
+      - delay:
+          seconds: !input keep_seconds
+
+      - service: file.delete
+        continue_on_error: true
+        data:
+          path: "{{ snapshot_path }}"
+
+mode: single
