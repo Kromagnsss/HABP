@@ -1,0 +1,99 @@
+blueprint:
+  name: Presence → Notification avec snapshot temporaire
+  description: >-
+    Prend un snapshot d'une entité caméra, attend brièvement la création du fichier,
+    envoie la notification mobile avec l'image locale, puis supprime le fichier.
+  domain: automation
+  source_url: https://github.com/Kromagnsss/HABP/blob/main/cam_notif.yaml
+  input:
+    motion_sensor:
+      name: Capteur de présence
+      selector:
+        entity:
+          domain: binary_sensor
+
+    camera_entity:
+      name: Caméra
+      selector:
+        entity:
+          domain: camera
+
+    notify_device:
+      name: Appareil à notifier
+      selector:
+        device:
+          integration: mobile_app
+
+    title:
+      name: Titre notification
+      default: "Mouvement détecté"
+      selector:
+        text:
+
+    message:
+      name: Message
+      default: "Quelqu’un est détecté"
+      selector:
+        text:
+
+    wait_seconds:
+      name: Attente avant envoi (secondes)
+      description: Laisse le temps au snapshot d'être écrit sur disque.
+      default: 2
+      selector:
+        number:
+          min: 1
+          max: 10
+          unit_of_measurement: s
+          mode: slider
+
+    keep_seconds:
+      name: Durée de conservation après envoi (secondes)
+      description: Délai avant suppression du fichier temporaire.
+      default: 15
+      selector:
+        number:
+          min: 5
+          max: 120
+          unit_of_measurement: s
+          mode: slider
+
+variables:
+  snapshot_name: "cam_notif_{{ context.id }}.jpg"
+  snapshot_path: "/config/www/{{ snapshot_name }}"
+  snapshot_url: "/local/{{ snapshot_name }}?v={{ now().timestamp() | int }}"
+
+trigger:
+  - platform: state
+    entity_id: !input motion_sensor
+    to: "on"
+
+action:
+  - service: camera.snapshot
+    target:
+      entity_id: !input camera_entity
+    data:
+      filename: "{{ snapshot_path }}"
+
+  - delay:
+      seconds: !input wait_seconds
+
+  - device_id: !input notify_device
+    domain: mobile_app
+    type: notify
+    title: !input title
+    message: !input message
+    data:
+      image: "{{ snapshot_url }}"
+      attachment:
+        url: "{{ snapshot_url }}"
+
+  - delay:
+      seconds: !input keep_seconds
+
+  - service: file.delete
+    continue_on_error: true
+    data:
+      path: "{{ snapshot_path }}"
+
+mode: single
